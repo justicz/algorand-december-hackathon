@@ -1,0 +1,257 @@
+// Allows the winner of a bet to atomically swap their winning yes/no tokens
+// for 1 algo each. This is designed to be used as a contract-only account.
+//
+// Parameters:
+//  - TMPL_YES_ASSET: The asset idx of the "Yes" asset
+//  - TMPL_NO_ASSET: The asset idx of the "No" asset
+//  - TMPL_MAX_SELF_FEE: The maximum fee that the contract may pay when performing a self-transfer of 0 Yes/No asset
+//  - TMPL_INIT_START_RND: The first round that the contract initialization may occur.
+//  - TMPL_INIT_END_RND: The last round that the contract initialization may occur.
+//  - TMPL_ORACLE: The address of the oracle
+//  - TMPL_YES_STMT: The statement that the oracle signs on a YES result
+//  - TMPL_NO_STMT: The statement that the oracle signs on a NO result
+
+// Check if we're in case 0 or case 1
+global GroupSize
+int 2
+==
+bnz Case0
+
+global GroupSize
+int 3
+==
+bnz Case1
+
+// Invalid group size
+err
+
+// CASE 0 Allow two self-transfer of zero to the contract to allocate
+// for receiving yes/no asset transfers. A lease is required so that
+// init can only happen once.
+Case0:
+
+YesAsset:
+gtxn 0 TypeEnum
+int 4
+==
+
+gtxn 0 Sender
+txn Sender
+==
+&&
+
+gtxn 0 AssetCloseTo
+global ZeroAddress
+==
+&&
+
+gtxn 0 XferAsset
+int TMPL_YES_ASSET
+==
+&&
+
+gtxn 0 AssetSender
+global ZeroAddress
+==
+&&
+
+gtxn 0 AssetReceiver
+txn Sender
+==
+&&
+
+gtxn 0 Fee
+int TMPL_MAX_SELF_FEE
+<=
+&&
+
+gtxn 0 AssetAmount
+int 0
+==
+&&
+
+gtxn 0 FirstValid
+int TMPL_INIT_START_RND
+==
+&&
+
+gtxn 0 LastValid
+int TMPL_INIT_END_RND
+==
+&&
+
+gtxn 0 Lease
+byte base64 WUVTTEVBU0VBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE=
+==
+&&
+
+NoAsset:
+
+gtxn 1 TypeEnum
+int 4
+==
+&&
+
+gtxn 1 Sender
+txn Sender
+==
+&&
+
+gtxn 1 AssetCloseTo
+global ZeroAddress
+==
+&&
+
+gtxn 1 XferAsset
+int TMPL_NO_ASSET
+==
+&&
+
+gtxn 1 AssetSender
+global ZeroAddress
+==
+&&
+
+gtxn 1 AssetReceiver
+txn Sender
+==
+&&
+
+gtxn 1 Fee
+int TMPL_MAX_SELF_FEE
+<=
+&&
+
+gtxn 1 AssetAmount
+int 0
+==
+&&
+
+gtxn 1 FirstValid
+int TMPL_INIT_START_RND
+==
+&&
+
+gtxn 1 LastValid
+int TMPL_INIT_END_RND
+==
+&&
+
+gtxn 1 Lease
+byte base64 Tk9MRUFTRUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE=
+==
+
+int 1
+bnz done
+
+// CASE 1:
+Case1:
+
+
+// Assert that we are the third transaction in the group
+txn GroupIndex
+int 2
+==
+
+// The first transaction is an AssetTransfer of some number
+// of winning tokens into the pool. The notes field of that txn
+// contains the signed oracle statement.
+gtxn 0 TypeEnum
+int 4
+==
+&&
+
+gtxn 0 AssetCloseTo
+global ZeroAddress
+==
+&&
+
+gtxn 0 AssetSender
+global ZeroAddress
+==
+&&
+
+gtxn 0 AssetReceiver
+txn Sender
+==
+&&
+
+// Check the oracle signature
+gtxn 2 Note
+arg_0
+addr TMPL_ORACLE
+ed25519verify
+&&
+
+// Check that the asset we're being transferred corresponds
+// with the oracle's statement
+// Oracle yes && XferAsset == YES_ASSET
+gtxn 0 XferAsset
+int TMPL_YES_ASSET
+==
+
+gtxn 2 Note
+byte base64 TMPL_YES_STMT
+==
+&&
+
+// Oracle no && XferAsset == NO_ASSET
+gtxn 0 XferAsset
+int TMPL_NO_ASSET
+==
+
+gtxn 2 Note
+byte base64 TMPL_NO_STMT
+==
+&&
+
+||
+&&
+
+// The second transaction is a payment that pays for the transaction
+// fee for the third transaction. All we care about is the recipient
+// and the amount.
+
+gtxn 1 TypeEnum
+int 1
+==
+&&
+
+gtxn 1 Receiver
+txn Sender
+==
+&&
+
+gtxn 1 Amount
+gtxn 2 Fee
+==
+&&
+
+// The third transaction is Payment from this escrow in the
+// amount of 1 algo per token to the person who transferred us
+// the asset in the first txn. We don't check the fee because
+// we were just transferred enough money for the fee in gtxn 1.
+gtxn 2 TypeEnum
+int 1
+==
+&&
+
+// Transfer 1000000 microAlgos per unit of asset transferred
+gtxn 2 Amount
+gtxn 0 AssetAmount
+int 1000000
+*
+==
+&&
+
+gtxn 2 CloseRemainderTo
+global ZeroAddress
+==
+&&
+
+gtxn 2 Receiver
+gtxn 0 Sender
+==
+
+done:
+&&
